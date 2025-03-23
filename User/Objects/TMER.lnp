@@ -1,0 +1,13 @@
+".\Objects\main.obj",
+".\Objects\UART1.obj",
+".\Objects\UART2.obj",
+".\Objects\EEPROM.obj",
+".\Objects\Timer0.obj",
+".\Objects\PCA.obj",
+".\Objects\KEY.obj",
+".\Objects\Menu.obj",
+".\Objects\DS1302.obj",
+".\Objects\IIC.obj",
+".\Objects\OLED.obj" 
+TO ".\Objects\TMER" 
+PRINT(".\Listings\TMER.m51") RAMSIZE(256) 

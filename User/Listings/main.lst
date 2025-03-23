@@ -1,0 +1,294 @@
+C51 COMPILER V9.60.7.0   MAIN                                                              12/05/2024 18:35:34 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\Objects\main.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE main.c OPTIMIZE(8,SPEED) BROWSE INCDIR(..\Hardware) DEBUG OBJECTEXTEND P
+                    -RINT(.\Listings\main.lst) TABS(2) OBJECT(.\Objects\main.obj)
+
+line level    source
+
+   1          #include <STC12C5A60S2.H>
+   2          #include <stdio.h>
+   3          #include "main.h"
+   4          #include "OLED.H"
+   5          #include "Timer0.H"
+   6          #include "PCA.H"
+   7          #include "Timer0.H"
+   8          #include "KEY.H"
+   9          #include "MENU.H"
+  10          #include "DS1302.H"
+  11          #include "UART1.H"
+  12          #include "UART2.H"
+  13          #include "EEPROM.H"
+  14          
+  15          /*************界面处理相关************************************/
+  16          u32   Menu_state,Menu_vaule;
+  17          char  MenuSet_flag;
+  18          u8    MenuSet_state;
+  19          /*************按键处理相关************************************/
+  20          u8    Key_KeyNumber,LastKey,NowKey,KeyNum,OnceKey,KeyNumber,Count;
+  21          u8    KeyTime;
+  22          u32   PCA0_cnt;
+  23          /*************秒表处理相关***********************************/
+  24          u8    Msec,Sec,Min;
+  25          bit   Stopwatchflag;
+  26          /*************倒计时处理相关*********************************/
+  27          char  Countdown_Hour,Countdown_Min,Countdown_Sec;
+  28          char  Countdown_select;
+  29          bit   Countdownflag;
+  30          u8    Countdowntimer;
+  31          /*************串口处理相关*********************************/
+  32          bit   busy1;
+  33          bit   busy2;
+  34          u8    uart1_rx_data;
+  35          /*************音频处理相关*********************************/
+  36          const u8 code Volume_play8[]={0x04,0xFB,0x09,0x07,0x2F,0x31,0x2F,0x38,0x2E,0x6D,0x70,0x33,0x14};//播放
+  37          const u8 code Volume_play1[]={0x04,0xFB,0x09,0x07,0x2F,0x31,0x2F,0x31,0x2E,0x6D,0x70,0x33,0x0D};
+  38          const u8 code Volume_plus[]={0x06,0xF9,0x01,0x02,0x02};//音量加
+  39          const u8 code Volume_down[]={0x06,0xF9,0x01,0x03,0x03};//音量减
+  40          const u8 code Volume_set[]={ 0x06,0xF9,0x02,0x01,0x0F,0x11};//音量默认设置15
+  41          char  Volume=15;
+  42          bit   bMusic;
+  43          /*************EEPROM处理相关**************/
+  44          u16   EEPROM_site;
+  45          /*************密码锁处理相关**************/
+  46          bit   bLock;
+  47          bit   bLock_Set;
+  48          u16   nLockNum;
+  49          u16   nLockNum_Set=1234;
+  50          char  cLockSelect;
+  51          /*************DS1302时间设定*****/
+  52          //用于存放时间,   年 月 日 时 分 秒 星期
+  53          char  DS1302_Time[7]={24,01,01,00,00,00,1};
+  54          bit   TimeSetting;
+C51 COMPILER V9.60.7.0   MAIN                                                              12/05/2024 18:35:34 PAGE 2   
+
+  55          u8    TimeSelect;
+  56          
+  57          void EEPROM_Init()
+  58          {
+  59   1        u16   i;
+  60   1        /**********EEPROM检测**********/
+  61   1        for (i=0; i<512; i++)           //循环读取，直到FF，表示未写入
+  62   1        {
+  63   2          if (IAP_ReadByte(0+i) == 0xff)
+  64   2          {
+  65   3            EEPROM_site = i;
+  66   3            break;
+  67   3          }
+  68   2        }
+  69   1        if(EEPROM_site!=0)
+  70   1        {
+  71   2          if(EEPROM_site==509)//写满，读取，擦除重新写
+  72   2          {
+  73   3            Countdown_Hour  = IAP_ReadByte(509-3);
+  74   3            Countdown_Min   = IAP_ReadByte(509-2);
+  75   3            Countdown_Sec   = IAP_ReadByte(509-1);
+  76   3            IAP_EraseSector(0);//扇区擦除，一个扇区512字节
+  77   3            EEPROM_site=5;
+  78   3            IAP_ProgramByte(2,Countdown_Hour);
+  79   3            IAP_ProgramByte(3,Countdown_Min);
+  80   3            IAP_ProgramByte(4,Countdown_Sec);
+  81   3          }else//未写满，正常读取
+  82   2          {
+  83   3            nLockNum_Set    = (IAP_ReadByte(0)<<8|IAP_ReadByte(1));
+  84   3            Countdown_Hour  = IAP_ReadByte(EEPROM_site-3);
+  85   3            Countdown_Min   = IAP_ReadByte(EEPROM_site-2);
+  86   3            Countdown_Sec   = IAP_ReadByte(EEPROM_site-1);
+  87   3          }
+  88   2        }
+  89   1      }
+  90          
+  91          void main()
+  92          { 
+  93   1        EEPROM_Init();
+  94   1        //IAP_EraseSector(0);
+  95   1        
+  96   1        /* 开启单片机低压检测中断 */ 
+  97   1        ELVD = 1;
+  98   1        PCON &= 0xdf;
+  99   1        
+ 100   1        /* 设备初始化 */ 
+ 101   1        OLED_Init();//OLED初始化
+ 102   1        OLED_Clear();//OLED清屏
+ 103   1        OLED_Background1(Menu_state);//显示初始菜单
+ 104   1        DS1302_Init();//DS1302初始化
+ 105   1        Timer0_Init();//定时器0初始化
+ 106   1        PCA0_Init();//PCA0初始化—做16位定时器
+ 107   1        Uart1_Init();//串口1初始化
+ 108   1        Uart2_Init();//串口2初始化
+ 109   1        
+ 110   1        EA=1;//打开总中断
+ 111   1        P4SW |= 0x30;//打开P4口
+ 112   1        
+ 113   1        
+ 114   1        /* LED初始化 */  
+ 115   1      //  LED_W=0;
+ 116   1      //  LED_B=0;
+C51 COMPILER V9.60.7.0   MAIN                                                              12/05/2024 18:35:34 PAGE 3   
+
+ 117   1      //  LED_G=0;
+ 118   1        LED_R=0;
+ 119   1        /* 继电器初始化 */  
+ 120   1        Relay1=1;//置1关继电器
+ 121   1        Relay2=1;
+ 122   1        UART2_SendHex(Volume_set, sizeof(Volume_set));//设置默认音量
+ 123   1        while(1)
+ 124   1        {
+ 125   2          if(bLock==0)
+ 126   2          {
+ 127   3            KeyNum=Key();             //读取按键键值
+ 128   3            Menu_Lock(KeyNum);
+ 129   3            //OLED_ShowNum(32,6,nLockNum_Set,4,8,1);
+ 130   3          }
+ 131   2          else if(bLock==1)
+ 132   2          {
+ 133   3            if(TimeSetting==0){DS1302_ReadTime();}//读取DS1302时间
+ 134   3            OLED_TimeShow(TimeSetting,TimeSelect);//检测是否修改DS1302
+ 135   3          
+ 136   3            KeyNum=Key();             //读取按键键值
+ 137   3          
+ 138   3            Menu_vaule=KeyNum+uart1_rx_data;//获取键值和蓝牙
+ 139   3            Menu(Menu_vaule);//进入菜单
+ 140   3            uart1_rx_data=0;
+ 141   3            OLED_ShowNum(0,7,Menu_state,2,8,1);
+ 142   3            OLED_ShowNum(32,7,EEPROM_site,4,8,1);
+ 143   3            OLED_ShowNum(32,6,nLockNum_Set,4,8,1);
+ 144   3            if(Menu_state==20)
+ 145   3            {
+ 146   4              OLED_StopwatchShow();//显示秒表时间
+ 147   4            }
+ 148   3            if(bMusic==1)//定时时间结束，播放音乐
+ 149   3            {
+ 150   4              UART2_SendHex(Volume_play8, sizeof(Volume_play8));//音乐播放
+ 151   4              bMusic=0;
+ 152   4            }
+ 153   3          }
+ 154   2          
+ 155   2      
+ 156   2        }
+ 157   1      }
+ 158          
+ 159          
+ 160          
+ 161          void Timer0_Routine() interrupt 1
+ 162          {
+ 163   1        TL0 = 0x00;       //设置定时初始值10ms
+ 164   1        TH0 = 0xDC; 
+ 165   1        if(Stopwatchflag==1)//秒表计时
+ 166   1        {
+ 167   2          Msec++;
+ 168   2          if(Msec==100){Sec++;Msec=0;}
+ 169   2          if(Sec==60){Min++;Sec=0;}
+ 170   2        }
+ 171   1        if(Countdownflag==1)//倒计时
+ 172   1        {
+ 173   2          Countdowntimer++;
+ 174   2          Relay1=0;
+ 175   2          Relay2=0;
+ 176   2          LED_R=1;
+ 177   2          LED_G=0;
+ 178   2          if(Countdowntimer==100){Countdown_Sec--;Countdowntimer=0;}
+C51 COMPILER V9.60.7.0   MAIN                                                              12/05/2024 18:35:34 PAGE 4   
+
+ 179   2          if(Countdown_Sec<0){Countdown_Min--;Countdown_Sec=59;}
+ 180   2          if(Countdown_Min<0){Countdown_Hour--;Countdown_Min=59;}
+ 181   2          if((Countdown_Hour==0)&&(Countdown_Min==0)&&(Countdown_Sec==0))
+ 182   2          {
+ 183   3            Countdownflag=0;
+ 184   3            Countdown_select=0;
+ 185   3            bMusic=1;
+ 186   3            Relay1=1;
+ 187   3            Relay2=1;
+ 188   3            LED_R=0;
+ 189   3            LED_G=1;
+ 190   3          }
+ 191   2        }
+ 192   1      
+ 193   1      } 
+ 194          
+ 195          void pcs_ds() interrupt 7
+ 196          {//按键检测—长按单击双击
+ 197   1        static unsigned int KeyCount1;
+ 198   1        CCF0=0;   //中断标志位清0
+ 199   1        CCAP0L=PCA0_cnt;    //比较寄存器程序赋值(比上次加1倍)
+ 200   1        CCAP0H=PCA0_cnt>>8;
+ 201   1        PCA0_cnt+=t100hz;//设置定时初始值10ms
+ 202   1        
+ 203   1        Loop_Key();
+ 204   1      
+ 205   1        if(OnceKey)
+ 206   1        {
+ 207   2          KeyCount1++;
+ 208   2          if(KeyCount1>=20)     //单击后200ms按键值判断时间
+ 209   2          { KeyCount1=0;
+ 210   3            if(OnceKey==1)        //按键按下1次后给按键赋值
+ 211   3            {OnceKey=0;KeyCount1=0;
+ 212   4            if(KeyNumber==11){Key_KeyNumber=11;}
+ 213   4            if(KeyNumber==21){Key_KeyNumber=21;}
+ 214   4            if(KeyNumber==31){Key_KeyNumber=31;}
+ 215   4            }
+ 216   3            else if(OnceKey==2)     //按键按下2次后给按键赋值
+ 217   3            {OnceKey=0;KeyCount1=0;
+ 218   4            if(KeyNumber==11){Key_KeyNumber=12;}
+ 219   4            if(KeyNumber==21){Key_KeyNumber=22;}
+ 220   4            if(KeyNumber==31){Key_KeyNumber=32;}
+ 221   4            }
+ 222   3          } 
+ 223   2        }
+ 224   1      }
+ 225          void Uart1_Isr(void) interrupt 4
+ 226          {
+ 227   1        
+ 228   1        if (TI)       //检测串口1发送中断
+ 229   1        {
+ 230   2          TI = 0;     //清除串口1发送中断请求位
+ 231   2          busy1 =0;
+ 232   2        }
+ 233   1        if (RI)       //检测串口1接收中断
+ 234   1        {
+ 235   2          RI = 0;     //清除串口1接收中断请求位
+ 236   2          uart1_rx_data = SBUF-54;
+ 237   2        }
+ 238   1      }
+ 239          
+ 240          void Uart2_Isr(void) interrupt 8
+C51 COMPILER V9.60.7.0   MAIN                                                              12/05/2024 18:35:34 PAGE 5   
+
+ 241          {
+ 242   1        if (S2CON & 0x02)     //检测串口2发送中断
+ 243   1        {
+ 244   2          S2CON &= ~0x02;     //清除串口2发送中断请求位
+ 245   2          busy2 = 0;
+ 246   2        }
+ 247   1        if (S2CON & 0x01)     //检测串口2接收中断
+ 248   1        {
+ 249   2          S2CON &= ~0x01;     //清除串口2接收中断请求位
+ 250   2        }
+ 251   1      }
+ 252          void LVD_Routine(void) interrupt 6//低电压检测中断服务函数
+ 253          {
+ 254   1          OLED_Display_Off();//关闭OLED显示，降低功耗
+ 255   1          
+ 256   1          /*将EEPROM分别写入数据*/
+ 257   1          IAP_ProgramByte(EEPROM_site,Countdown_Hour);
+ 258   1          IAP_ProgramByte(EEPROM_site+1,Countdown_Min);
+ 259   1          IAP_ProgramByte(EEPROM_site+2,Countdown_Sec);
+ 260   1          
+ 261   1          PCON &= 0xdf; /* 检测到低压时的标志位清零 */
+ 262   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    853    ----
+   CONSTANT SIZE    =     42    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     43       2
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      8    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
